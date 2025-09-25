@@ -30,6 +30,57 @@ class PaperTrader:
         else:
             print(f"❌ Insufficient balance to buy {quantity}x {option_row['option_type']} strike {option_row['strike']}.")
 
+    def sell_option(self, option_row, quantity, current_df=None):
+        """Sell an option contract from the existing positions.
+
+        :param option_row: Row of option chain DataFrame representing the option to sell.
+        :param quantity: Number of contracts to sell.
+        :param current_df: Optional snapshot of the option chain. Included for API
+            compatibility but not required because ``option_row`` already contains
+            the current price.
+        """
+        for idx, pos in enumerate(self.positions):
+            opt = pos['option']
+            if (
+                opt['strike'] == option_row['strike']
+                and opt['expiry_days'] == option_row['expiry_days']
+                and opt['option_type'] == option_row['option_type']
+            ):
+                if quantity > pos['quantity']:
+                    print(
+                        f"❌ Cannot sell {quantity}x {option_row['option_type']} strike "
+                        f"{option_row['strike']}: only {pos['quantity']} owned."
+                    )
+                    return
+
+                sell_price = option_row['price']
+                proceeds = sell_price * quantity * 100
+                self.balance += proceeds
+
+                cost_per_contract = pos['total_cost'] / pos['quantity'] if pos['quantity'] else 0
+                pos['quantity'] -= quantity
+                pos['total_cost'] = max(0, pos['total_cost'] - cost_per_contract * quantity)
+
+                self.transaction_history.append({
+                    'action': 'SELL',
+                    'option_type': option_row['option_type'],
+                    'strike': option_row['strike'],
+                    'expiry_days': option_row['expiry_days'],
+                    'quantity': quantity,
+                    'price': sell_price,
+                    'total_cost': proceeds,
+                    'realized_pnl': proceeds - cost_per_contract * quantity
+                })
+
+                if pos['quantity'] == 0:
+                    self.positions.pop(idx)
+                return
+
+        print(
+            f"❌ No position found to sell {quantity}x {option_row['option_type']} "
+            f"strike {option_row['strike']} expiring in {option_row['expiry_days']} days."
+        )
+
     def mark_to_market(self, current_df):
         """
         Calculate total value of all current positions.
